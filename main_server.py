@@ -42,6 +42,10 @@ class DocumentRequest(BaseModel):
     asset_id: str
     asset_content: dict
 
+class DeleteDocumentRequest(BaseModel):
+    index_name: str
+    asset_id: str
+
 class SearchQueryRequest(BaseModel):
     index_name: str
     search_query: dict
@@ -86,6 +90,71 @@ async def add_document(request: DocumentRequest):
                 "message": f"Document added to index '{request.index_name}'", 
                 "response": response
             }
+        else:
+            raise HTTPException(status_code=400, detail=f"Index '{request.index_name}' does not exist")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.post("/updateDocument")
+async def update_document(request: DocumentRequest):
+    try:
+        if client.indices.exists(index=request.index_name):
+            # Get document _id field (unique OpenSearch document identifier field)
+            search_query = {
+                "query": {
+                    "term": {
+                        "_id": request.asset_id # Searching based on the field "_id" which is a GUID
+                    }
+                }
+            }
+            response = client.search(index=request.index_name, body=search_query)
+
+            hits = response["hits"]["hits"]
+
+            if hits:
+                document_id = hits[0]["_id"]  # Extract the OpenSearch `_id`
+                                
+                response = client.index(index=request.index_name, id=document_id, body=request.asset_content)
+
+                return {
+                    "message": f"Document updated to index '{request.index_name}'", 
+                    "response": response
+                }
+            else:
+                raise HTTPException(status_code=400, detail=f"Document _id: '{request.asset_id}' not found")
+        else:
+            raise HTTPException(status_code=400, detail=f"Index '{request.index_name}' does not exist")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.delete("/deleteDocument")
+async def delete_document(request: DeleteDocumentRequest):
+    try:
+        if client.indices.exists(index=request.index_name):
+            # Search for the document using the "video_title" field
+            search_query = {
+                "query": {
+                    "term": {
+                        "_id": request.asset_id # Searching based on the field "_id" which is a GUID
+                    }
+                }
+            }
+            response = client.search(index=request.index_name, body=search_query)
+            hits = response["hits"]["hits"]
+
+            if hits:
+                document_id = hits[0]["_id"]  # Get the OpenSearch `_id`
+                
+                # Delete the document
+                delete_response = client.delete(index=request.index_name, id=document_id)
+
+                return {
+                    "message": f"Document deleted from index '{request.index_name}'",
+                    "response": delete_response
+                }
+            else:
+                raise HTTPException(status_code=404, detail=f"Document _id: '{request.asset_id}' not found")
         else:
             raise HTTPException(status_code=400, detail=f"Index '{request.index_name}' does not exist")
     except Exception as e:
